@@ -65,6 +65,21 @@ var topologyNames = []string{
 	SwarmService,
 }
 
+type DNSRecord struct {
+	Forward StringSet `json:"forward,omitempty"`
+	Reverse StringSet `json:"reverse,omitempty"`
+}
+
+type DNSRecords map[string]DNSRecord
+
+func (r DNSRecords) Copy() DNSRecords {
+	cp := make(DNSRecords, len(r))
+	for k, v := range r {
+		cp[k] = v
+	}
+	return cp
+}
+
 // Report is the core data type. It's produced by probes, and consumed and
 // stored by apps. It's composed of multiple topologies, each representing
 // a different (related, but not equivalent) view of the network.
@@ -150,6 +165,8 @@ type Report struct {
 	// overlaid on the infrastructure. The information is scraped by polling
 	// their status endpoints. Edges are present.
 	Overlay Topology
+
+	DNS DNSRecords
 
 	// Sampling data for this report.
 	Sampling Sampling
@@ -242,6 +259,8 @@ func MakeReport() Report {
 			WithShape(Heptagon).
 			WithLabel("service", "services"),
 
+		DNS: DNSRecords{},
+
 		Sampling: Sampling{},
 		Window:   0,
 		Plugins:  xfer.MakePluginSpecs(),
@@ -252,6 +271,7 @@ func MakeReport() Report {
 // Copy returns a value copy of the report.
 func (r Report) Copy() Report {
 	newReport := Report{
+		DNS:      r.DNS.Copy(),
 		Sampling: r.Sampling,
 		Window:   r.Window,
 		Plugins:  r.Plugins.Copy(),
@@ -371,7 +391,7 @@ func (r Report) Validate() error {
 //
 // This for now creates node's LatestControls from Controls.
 func (r Report) Upgrade() Report {
-	return r.upgradeLatestControls().upgradePodNodes().upgradeNamespaces()
+	return r.upgradeLatestControls().upgradePodNodes().upgradeNamespaces().upgradeDNSRecords()
 }
 
 func (r Report) upgradeLatestControls() Report {
@@ -466,6 +486,37 @@ func (r Report) upgradeNamespaces() Report {
 	}
 	r.Namespace.Nodes = nodes
 
+	return r
+}
+
+// Note in-place modification of Endpoint.Nodes
+func (r Report) upgradeDNSRecords() Report {
+	if len(r.DNS) > 0 {
+		return r
+	}
+	dns := make(DNSRecords)
+	for endpointID, endpoint := range r.Endpoint.Nodes {
+		_, addr, _, ok := ParseEndpointNodeID(endpointID)
+		snoopedNames, foundS := endpoint.Sets.Lookup(SnoopedDNSNames)
+		reverseNames, foundR := endpoint.Sets.Lookup(ReverseDNSNames)
+		if ok && (foundS || foundR) {
+			// Add address and names to report-level data - we assume
+			// all endpoints with the same address have equally good data
+			if _, found := dns[addr]; ok && !found {
+				dns[addr] = DNSRecord{Forward: snoopedNames, Reverse: reverseNames}
+			}
+			// Now remove the entries from Sets, to save work during merging
+			// First, the case where these are the only entries in Sets - just blank it
+			if (foundS && foundR && endpoint.Sets.Size() == 2) || endpoint.Sets.Size() == 1 {
+				endpoint.Sets = MakeSets()
+			} else {
+				// Do it the hard way
+				endpoint.Sets = endpoint.Sets.Delete(SnoopedDNSNames).Delete(ReverseDNSNames)
+			}
+			r.Endpoint.Nodes[endpointID] = endpoint
+		}
+	}
+	r.DNS = dns
 	return r
 }
 
