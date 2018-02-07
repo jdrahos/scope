@@ -65,21 +65,6 @@ var topologyNames = []string{
 	SwarmService,
 }
 
-type DNSRecord struct {
-	Forward StringSet `json:"forward,omitempty"`
-	Reverse StringSet `json:"reverse,omitempty"`
-}
-
-type DNSRecords map[string]DNSRecord
-
-func (r DNSRecords) Copy() DNSRecords {
-	cp := make(DNSRecords, len(r))
-	for k, v := range r {
-		cp[k] = v
-	}
-	return cp
-}
-
 // Report is the core data type. It's produced by probes, and consumed and
 // stored by apps. It's composed of multiple topologies, each representing
 // a different (related, but not equivalent) view of the network.
@@ -287,6 +272,7 @@ func (r Report) Copy() Report {
 // original is not modified.
 func (r Report) Merge(other Report) Report {
 	newReport := r.Copy()
+	newReport.DNS = newReport.DNS.Merge(other.DNS)
 	newReport.Sampling = newReport.Sampling.Merge(other.Sampling)
 	newReport.Window = newReport.Window + other.Window
 	newReport.Plugins = newReport.Plugins.Merge(other.Plugins)
