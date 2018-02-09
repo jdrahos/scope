@@ -101,7 +101,6 @@ function mapStateToProps(state, { params }) {
   }
 
   return {
-    visible: scopeState.get('showingTimeTravel'),
     showingLive: !scopeState.get('pausedAt'),
     topologyViewMode: scopeState.get('topologyViewMode'),
     currentTopology: scopeState.get('currentTopology'),
