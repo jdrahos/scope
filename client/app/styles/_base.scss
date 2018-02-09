@@ -211,6 +211,8 @@ a {
   .selectors {
     display: flex;
     position: relative;
+    margin-top: -10px;
+
     > * {
       z-index: 20;
       flex: 1 1;
